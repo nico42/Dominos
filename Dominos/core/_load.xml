@@ -6,5 +6,5 @@
 <Script file="frame.lua" />
 <Script file="bindableButton.lua" />
 <Script file="minimap.lua" />
-<Script file="hotkeyStyle.lua" />
+<Script file="textStyle.lua" />
 </Ui>
