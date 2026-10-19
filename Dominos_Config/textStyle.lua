@@ -1,18 +1,21 @@
 --[[
-hotkeyStyle.lua
-Options page for the keybinding text style (font, size, colour, outline, x/y offset).
-The logic lives in Dominos/core/hotkeyStyle.lua (Dominos.HotkeyStyle).
+textStyle.lua
+Options page for the texts on the action buttons (keybinding text, macro name, count):
+font, size, colour, outline and x/y offset, separately for each text.
+The logic lives in Dominos/core/textStyle.lua (Dominos.TextStyle).
 --]]
 local Dominos = Dominos
-local HS = Dominos.HotkeyStyle
+local TS = Dominos.TextStyle
 local L = LibStub("AceLocale-3.0"):GetLocale("Dominos-Config")
 local _G = _G
 
-local panel = Dominos.Options:New("DominosHotkeyStyle", L.HotkeyStyle, L.HotkeyStyleDesc, nil, GetAddOnMetadata("Dominos", "title"))
-HS.panel = panel
+local panel = Dominos.Options:New("DominosTextStyle", L.TextStyle, L.TextStyleDesc, nil, GetAddOnMetadata("Dominos", "title"))
+TS.panel = panel
 
+local current = "hotkey"   -- element being edited
 local refreshing = false
-local controls = {}
+
+local ELEMENT_NAMES = { hotkey = L.TextHotkey, macro = L.TextMacro, count = L.TextCount }
 
 local function SetDDWidth(dd, w)
 	if not pcall(UIDropDownMenu_SetWidth, dd, w) then
@@ -24,19 +27,43 @@ local function SetDDText(dd, text)
 	_G[dd:GetName() .. "Text"]:SetText(text)
 end
 
+local function Get(key) return TS:Get(current, key) end
+local function Set(key, value) TS:Set(current, key, value) end
+
+local Refresh   -- defined below
+
+--[[ Element selector ]]--
+local elementDD = panel:NewDropdown(L.TextElement)
+elementDD:SetPoint("TOPLEFT", 0, -78)
+
+function elementDD:Initialize()
+	for _, el in ipairs(TS.ELEMENTS) do
+		local info = {}
+		info.text = ELEMENT_NAMES[el]
+		info.value = el
+		info.checked = (current == el)
+		info.func = function(self)
+			current = self.value
+			Refresh()
+		end
+		UIDropDownMenu_AddButton(info)
+	end
+end
+UIDropDownMenu_Initialize(elementDD, elementDD.Initialize)
+SetDDWidth(elementDD, 200)
+
 --[[ Enable ]]--
-local enable = panel:NewCheckButton(L.HotkeyStyleEnable)
-enable:SetPoint("TOPLEFT", 16, -64)
-enable:SetScript("OnClick", function(self) HS:Set("enabled", self:GetChecked() and true or false) end)
-controls.enable = enable
+local enable = panel:NewCheckButton(L.TextStyleEnable)
+enable:SetPoint("TOPLEFT", 16, -112)
+enable:SetScript("OnClick", function(self) Set("enabled", self:GetChecked() and true or false) end)
 
 --[[ Font dropdown (grouped in sub menus when the list is long) ]]--
 local CHUNK = 20
-local fontDD = panel:NewDropdown(L.HotkeyFont)
-fontDD:SetPoint("TOPLEFT", 0, -112)
+local fontDD = panel:NewDropdown(L.TextFont)
+fontDD:SetPoint("TOPLEFT", 0, -170)
 
 local function Font_OnClick(self)
-	HS:Set("font", self.value)
+	Set("font", self.value)
 	SetDDText(fontDD, self.value)
 	CloseDropDownMenus()
 end
@@ -46,13 +73,13 @@ local function AddFont(name, level)
 	info.text = name
 	info.value = name
 	info.func = Font_OnClick
-	info.checked = (HS:Get("font") == name)
+	info.checked = (Get("font") == name)
 	UIDropDownMenu_AddButton(info, level)
 end
 
 function fontDD:Initialize(level)
 	level = level or 1
-	local fonts = HS:GetFontList()
+	local fonts = TS:GetFontList()
 	if #fonts <= CHUNK then
 		for _, name in ipairs(fonts) do AddFont(name, level) end
 	elseif level == 1 then
@@ -71,16 +98,15 @@ function fontDD:Initialize(level)
 end
 UIDropDownMenu_Initialize(fontDD, fontDD.Initialize)
 SetDDWidth(fontDD, 160)
-controls.font = fontDD
 
 --[[ Outline dropdown ]]--
-local outlineDD = panel:NewDropdown(L.HotkeyOutline)
+local outlineDD = panel:NewDropdown(L.TextOutline)
 outlineDD:SetPoint("LEFT", fontDD, "RIGHT", -6, 0)
 
 local OUTLINES = {
-	{ "", L.HotkeyOutlineNone },
-	{ "OUTLINE", L.HotkeyOutlineThin },
-	{ "THICKOUTLINE", L.HotkeyOutlineThick },
+	{ "", L.TextOutlineNone },
+	{ "OUTLINE", L.TextOutlineThin },
+	{ "THICKOUTLINE", L.TextOutlineThick },
 }
 local function OutlineText(value)
 	for _, o in ipairs(OUTLINES) do
@@ -94,9 +120,9 @@ function outlineDD:Initialize()
 		local info = {}
 		info.text = o[2]
 		info.value = o[1]
-		info.checked = (HS:Get("outline") == o[1])
+		info.checked = (Get("outline") == o[1])
 		info.func = function(self)
-			HS:Set("outline", self.value)
+			Set("outline", self.value)
 			SetDDText(outlineDD, OutlineText(self.value))
 		end
 		UIDropDownMenu_AddButton(info)
@@ -104,9 +130,9 @@ function outlineDD:Initialize()
 end
 UIDropDownMenu_Initialize(outlineDD, outlineDD.Initialize)
 SetDDWidth(outlineDD, 120)
-controls.outline = outlineDD
 
 --[[ Sliders ]]--
+local sliders = {}
 local function NewValueSlider(text, low, high, key, anchorTo, offsetY)
 	local s = panel:NewSlider(text, low, high, 1, true)
 	s:SetWidth(220)
@@ -114,22 +140,22 @@ local function NewValueSlider(text, low, high, key, anchorTo, offsetY)
 	s:SetScript("OnValueChanged", function(self, value)
 		value = floor(value + 0.5)
 		self.valText:SetText(value)
-		if not refreshing and HS:Get(key) ~= value then HS:Set(key, value) end
+		if not refreshing and Get(key) ~= value then Set(key, value) end
 	end)
-	controls[key] = s
+	sliders[key] = s
 	return s
 end
 
-local sizeSlider = NewValueSlider(L.HotkeySize, 6, 32, "size", fontDD, -34)
-local xSlider = NewValueSlider(L.HotkeyOffsetX, -30, 30, "x", sizeSlider, -34)
-local ySlider = NewValueSlider(L.HotkeyOffsetY, -30, 30, "y", xSlider, -34)
+local sizeSlider = NewValueSlider(L.TextSize, 6, 32, "size", fontDD, -34)
+local xSlider = NewValueSlider(L.TextOffsetX, -30, 30, "x", sizeSlider, -34)
+local ySlider = NewValueSlider(L.TextOffsetY, -30, 30, "y", xSlider, -34)
 
 --[[ Colour ]]--
 local colorLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 colorLabel:SetPoint("TOPLEFT", sizeSlider, "TOPRIGHT", 50, 4)
-colorLabel:SetText(L.HotkeyColor)
+colorLabel:SetText(L.TextColor)
 
-local swatch = CreateFrame("Button", "DominosHotkeyStyleColor", panel)
+local swatch = CreateFrame("Button", "DominosTextStyleColor", panel)
 swatch:SetWidth(28)
 swatch:SetHeight(28)
 swatch:SetPoint("TOPLEFT", colorLabel, "BOTTOMLEFT", 0, -4)
@@ -144,45 +170,48 @@ fill:SetTexture(1, 1, 1)
 swatch:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 
 local function UpdateSwatch()
-	fill:SetVertexColor(HS:Get("r"), HS:Get("g"), HS:Get("b"))
+	fill:SetVertexColor(Get("r"), Get("g"), Get("b"))
 end
 
 swatch:SetScript("OnClick", function()
-	local r, g, b = HS:Get("r"), HS:Get("g"), HS:Get("b")
+	local el = current
+	local r, g, b = Get("r"), Get("g"), Get("b")
 	ColorPickerFrame.hasOpacity = false
 	ColorPickerFrame.opacity = nil
 	ColorPickerFrame.previousValues = { r, g, b }
 	ColorPickerFrame.func = function()
-		HS:SetColor(ColorPickerFrame:GetColorRGB())
-		UpdateSwatch()
+		TS:SetColor(el, ColorPickerFrame:GetColorRGB())
+		if el == current then UpdateSwatch() end
 	end
 	ColorPickerFrame.opacityFunc = nil
 	ColorPickerFrame.cancelFunc = function(prev)
-		HS:SetColor(prev[1], prev[2], prev[3])
-		UpdateSwatch()
+		TS:SetColor(el, prev[1], prev[2], prev[3])
+		if el == current then UpdateSwatch() end
 	end
 	ColorPickerFrame:SetColorRGB(r, g, b)
 	ColorPickerFrame:Hide()
 	ColorPickerFrame:Show()
 end)
 
---[[ Reset ]]--
-local reset = panel:NewButton(L.HotkeyReset, 140, 22)
+--[[ Reset (current text only) ]]--
+local reset = panel:NewButton(L.TextReset, 170, 22)
 reset:SetPoint("TOPLEFT", ySlider, "BOTTOMLEFT", 0, -28)
 reset:SetScript("OnClick", function()
-	HS:Reset()
-	panel:GetScript("OnShow")(panel)
+	TS:Reset(current)
+	Refresh()
 end)
 
 --[[ Refresh controls from the active profile ]]--
-panel:SetScript("OnShow", function()
+function Refresh()
 	refreshing = true
-	enable:SetChecked(HS:Get("enabled"))
-	SetDDText(fontDD, HS:Get("font"))
-	SetDDText(outlineDD, OutlineText(HS:Get("outline")))
-	sizeSlider:SetValue(HS:Get("size"))
-	xSlider:SetValue(HS:Get("x"))
-	ySlider:SetValue(HS:Get("y"))
+	SetDDText(elementDD, ELEMENT_NAMES[current])
+	enable:SetChecked(Get("enabled"))
+	SetDDText(fontDD, Get("font"))
+	SetDDText(outlineDD, OutlineText(Get("outline")))
+	sizeSlider:SetValue(Get("size"))
+	xSlider:SetValue(Get("x"))
+	ySlider:SetValue(Get("y"))
 	UpdateSwatch()
 	refreshing = false
-end)
+end
+panel:SetScript("OnShow", Refresh)
