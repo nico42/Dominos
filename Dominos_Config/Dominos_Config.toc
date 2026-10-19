@@ -11,3 +11,4 @@ menu.lua
 panel.lua
 general.lua
 profiles.lua
+hotkeyStyle.lua

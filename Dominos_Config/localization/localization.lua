@@ -66,3 +66,17 @@ L.CtrlAltShift = CTRL_KEY_TEXT .. "-ALT-" .. SHIFT_KEY_TEXT
 --totems
 L.ShowTotems = "Show Totems"
 L.ShowTotemRecall = "Show Recall"
+
+L.HotkeyStyle = "Hotkey Text"
+L.HotkeyStyleDesc = "Font, size, colour and position of the keybinding text on the action buttons"
+L.HotkeyStyleEnable = "Use custom hotkey text style"
+L.HotkeyFont = "Font"
+L.HotkeyOutline = "Outline"
+L.HotkeyOutlineNone = "None"
+L.HotkeyOutlineThin = "Outline"
+L.HotkeyOutlineThick = "Thick outline"
+L.HotkeySize = "Size"
+L.HotkeyColor = "Colour"
+L.HotkeyOffsetX = "X offset"
+L.HotkeyOffsetY = "Y offset"
+L.HotkeyReset = "Reset to defaults"

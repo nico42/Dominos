@@ -1,16 +1,33 @@
--- Dominos hotkey style: changes font / size / colour of the hotkey text on action buttons.
--- Part of this Dominos fork (Dominos reuses the Blizzard buttons).
--- Commands: /hks  (see /hks help)
+--[[
+	hotkeyStyle.lua
+	Font, size, colour, outline and x/y offset of the keybinding text on action buttons.
+	Settings are stored per profile in Dominos.db.profile.hotkeyStyle and are edited in
+	Interface Options > Dominos > Hotkey Text. Dominos reuses the Blizzard buttons, so the
+	text is restyled by hooking the Blizzard button update functions (the game resets
+	colour / font on its own updates, so a one-time SetFont would not stick).
+--]]
+local Dominos = Dominos
+local LSM = LibStub("LibSharedMedia-3.0", true)
 
-local FONTS = {
-	frizqt = "Fonts\\FRIZQT__.TTF",
-	arialn = "Fonts\\ARIALN.TTF",
-	skurri = "Fonts\\skurri.ttf",
-	morpheus = "Fonts\\MORPHEUS.ttf",
+local HS = {}
+Dominos.HotkeyStyle = HS
+
+local DEFAULT_FONT = "Friz Quadrata TT"
+local FALLBACK_FONTS = {
+	["Friz Quadrata TT"] = "Fonts\\FRIZQT__.TTF",
+	["Arial Narrow"] = "Fonts\\ARIALN.TTF",
+	["Skurri"] = "Fonts\\skurri.ttf",
+	["Morpheus"] = "Fonts\\MORPHEUS.ttf",
 }
-local DEFAULTS = { font = FONTS.frizqt, size = 14, outline = "OUTLINE", r = 1, g = 1, b = 0 }
-local db = DEFAULTS
-local cache = {}   -- button -> hotkey fontstring (or false)
+
+HS.DEFAULTS = {
+	enabled = false,
+	font = DEFAULT_FONT,
+	size = 12,
+	outline = "OUTLINE", -- "", "OUTLINE" or "THICKOUTLINE"
+	r = 1, g = 1, b = 0,
+	x = 0, y = 0,
+}
 
 local PREFIXES = {
 	{ "ActionButton", 12 }, { "BonusActionButton", 12 },
@@ -19,6 +36,49 @@ local PREFIXES = {
 	{ "DominosActionButton", 48 },
 }
 
+local cfg            -- active settings table (nil until the database exists)
+local cache = {}     -- button -> hotkey fontstring (or false)
+local orig = {}      -- hotkey fontstring -> original look
+
+------------------------------------------------------------------
+-- Settings
+------------------------------------------------------------------
+local function LoadConfig()
+	local db = Dominos.db
+	if not (db and db.profile) then cfg = nil return end
+	local t = db.profile.hotkeyStyle
+	if type(t) ~= "table" then
+		t = {}
+		db.profile.hotkeyStyle = t
+	end
+	for k, v in pairs(HS.DEFAULTS) do
+		if t[k] == nil then t[k] = v end
+	end
+	cfg = t
+end
+
+function HS:Get(key)
+	if not cfg then LoadConfig() end
+	return cfg and cfg[key]
+end
+
+function HS:GetFontPath(name)
+	name = name or (cfg and cfg.font) or DEFAULT_FONT
+	local path = LSM and LSM:Fetch("font", name, true)
+	return path or FALLBACK_FONTS[name] or FALLBACK_FONTS[DEFAULT_FONT]
+end
+
+function HS:GetFontList()
+	if LSM then return LSM:List("font") end
+	local list = {}
+	for name in pairs(FALLBACK_FONTS) do list[#list + 1] = name end
+	table.sort(list)
+	return list
+end
+
+------------------------------------------------------------------
+-- Applying
+------------------------------------------------------------------
 local function HotKeyOf(btn)
 	local hk = cache[btn]
 	if hk == nil then
@@ -29,85 +89,132 @@ local function HotKeyOf(btn)
 	return hk
 end
 
+local function Remember(hk)
+	if orig[hk] then return orig[hk] end
+	local font, size, flags = hk:GetFont()
+	local r, g, b = hk:GetTextColor()
+	local o = { font = font, size = size, flags = flags, r = r, g = g, b = b }
+	if hk:GetNumPoints() > 0 then
+		o.point, o.rel, o.relPoint, o.x, o.y = hk:GetPoint(1)
+	end
+	orig[hk] = o
+	return o
+end
+
+local function Position(hk, o)
+	if o.point then
+		hk:ClearAllPoints()
+		hk:SetPoint(o.point, o.rel, o.relPoint, (o.x or 0) + cfg.x, (o.y or 0) + cfg.y)
+	end
+end
+
 local function Style(hk)
-	if not pcall(hk.SetFont, hk, db.font, db.size, db.outline) then
-		hk:SetFont(DEFAULTS.font, db.size, db.outline)
+	local o = Remember(hk)
+	if not pcall(hk.SetFont, hk, HS:GetFontPath(), cfg.size, cfg.outline) then
+		hk:SetFont(HS:GetFontPath(DEFAULT_FONT), cfg.size, cfg.outline)
+	end
+	hk:SetTextColor(cfg.r, cfg.g, cfg.b)
+	hk:SetVertexColor(1, 1, 1)
+	Position(hk, o)
+end
+
+local function Restore(hk)
+	local o = orig[hk]
+	if not o then return end
+	if o.font then hk:SetFont(o.font, o.size, o.flags) end
+	hk:SetTextColor(o.r, o.g, o.b)
+	if o.point then
+		hk:ClearAllPoints()
+		hk:SetPoint(o.point, o.rel, o.relPoint, o.x, o.y)
 	end
 end
 
--- cheap re-apply of the colour (the game resets it on every range / usable update)
-local function Recolor(btn)
-	local hk = HotKeyOf(btn)
-	if hk then
-		hk:SetTextColor(db.r, db.g, db.b)
-		hk:SetVertexColor(1, 1, 1)
-	end
-end
-
-local function ApplyAll()
+function HS:Apply()
+	if not cfg then LoadConfig() end
+	if not cfg then return end
 	for _, p in ipairs(PREFIXES) do
 		for i = 1, p[2] do
 			local btn = _G[p[1] .. i]
-			if btn then
-				local hk = HotKeyOf(btn)
-				if hk then Style(hk); Recolor(btn) end
+			local hk = btn and HotKeyOf(btn)
+			if hk then
+				if cfg.enabled then Style(hk) else Restore(hk) end
 			end
 		end
 	end
 end
 
-local function Hooked(btn) Recolor(btn) end
-local function HookedFull(btn)
+function HS:Set(key, value)
+	if not cfg then LoadConfig() end
+	if not cfg then return end
+	cfg[key] = value
+	self:Apply()
+end
+
+function HS:SetColor(r, g, b)
+	if not cfg then LoadConfig() end
+	if not cfg then return end
+	cfg.r, cfg.g, cfg.b = r, g, b
+	self:Apply()
+end
+
+function HS:Reset()
+	if not cfg then LoadConfig() end
+	if not cfg then return end
+	for k, v in pairs(self.DEFAULTS) do cfg[k] = v end
+	self:Apply()
+end
+
+function HS:Refresh()
+	LoadConfig()
+	self:Apply()
+end
+
+------------------------------------------------------------------
+-- Hooks (the game resets colour / font on its own updates)
+------------------------------------------------------------------
+local function OnColorUpdate(btn)
+	if not (cfg and cfg.enabled) then return end
 	local hk = HotKeyOf(btn)
-	if hk then Style(hk); Recolor(btn) end
+	if hk then
+		hk:SetTextColor(cfg.r, cfg.g, cfg.b)
+		hk:SetVertexColor(1, 1, 1)
+	end
+end
+
+local function OnFullUpdate(btn)
+	if not (cfg and cfg.enabled) then return end
+	local hk = HotKeyOf(btn)
+	if hk then Style(hk) end
 end
 
 local function Hook(name, fn)
 	if _G[name] then hooksecurefunc(name, fn) end
 end
 
+Hook("ActionButton_OnUpdate", OnColorUpdate)
+Hook("ActionButton_UpdateUsable", OnColorUpdate)
+Hook("ActionButton_UpdateHotkeys", OnFullUpdate)
+Hook("ActionButton_Update", OnFullUpdate)
+
 local f = CreateFrame("Frame")
-f:RegisterEvent("PLAYER_LOGIN")
-f:SetScript("OnEvent", function()
-	DominosHotkeyStyleDB = DominosHotkeyStyleDB or {}
-	for k, v in pairs(DEFAULTS) do
-		if DominosHotkeyStyleDB[k] == nil then DominosHotkeyStyleDB[k] = v end
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+	if Dominos.db then
+		for _, ev in ipairs({ "OnProfileChanged", "OnProfileCopied", "OnProfileReset" }) do
+			Dominos.db.RegisterCallback(HS, ev, "Refresh")
+		end
 	end
-	db = DominosHotkeyStyleDB
-	Hook("ActionButton_OnUpdate", Hooked)
-	Hook("ActionButton_UpdateUsable", Hooked)
-	Hook("ActionButton_UpdateHotkeys", HookedFull)
-	Hook("ActionButton_Update", HookedFull)
-	ApplyAll()
+	HS:Refresh()
 end)
 
-local function Say(msg) DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99HotkeyStyle:|r " .. msg) end
-
-SLASH_HOTKEYSTYLE1 = "/hks"
-SlashCmdList["HOTKEYSTYLE"] = function(msg)
-	local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)$")
-	cmd = cmd:lower()
-	if cmd == "size" then
-		local n = tonumber(rest)
-		if not n or n < 4 or n > 40 then return Say("usage: /hks size 14   (4-40)") end
-		db.size = n
-	elseif cmd == "color" or cmd == "colour" then
-		local r, g, b = rest:match("^([%d%.]+)%s+([%d%.]+)%s+([%d%.]+)$")
-		r, g, b = tonumber(r), tonumber(g), tonumber(b)
-		if not r then return Say("usage: /hks color 1 1 0   (red green blue, 0-1)") end
-		db.r, db.g, db.b = r, g, b
-	elseif cmd == "font" then
-		local path = FONTS[rest:lower()] or (rest ~= "" and rest)
-		if not path then return Say("usage: /hks font frizqt|arialn|skurri|morpheus  or a path") end
-		db.font = path
-	elseif cmd == "outline" then
-		local v = rest:lower()
-		db.outline = (v == "off" and "") or (v == "thick" and "THICKOUTLINE") or "OUTLINE"
-	elseif cmd == "reset" then
-		for k, v in pairs(DEFAULTS) do db[k] = v end
-	else
-		Say("/hks size <n> | color <r> <g> <b> | font <name|path> | outline on|off|thick | reset")
-		return
+------------------------------------------------------------------
+-- /hks opens the options page
+------------------------------------------------------------------
+SLASH_DOMINOSHOTKEYSTYLE1 = "/hks"
+SlashCmdList["DOMINOSHOTKEYSTYLE"] = function()
+	if Dominos:ShowOptions() and HS.panel then
+		InterfaceOptionsFrame_OpenToCategory(HS.panel)
+		InterfaceOptionsFrame_OpenToCategory(HS.panel)
 	end
-	ApplyAll()
 end
