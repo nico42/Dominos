@@ -3,7 +3,7 @@
 ## Notes: A main actionbar replacement
 ## Author: Tuller (Kader's Edition)
 ## Version: 1.18.7
-## SavedVariables: DominosDB, DominosVersion
+## SavedVariables: DominosDB, DominosVersion, DominosHotkeyStyleDB
 ## OptionalDeps: Ace3, LibKeyBound-1.0, ButtonFacade
 ## X-Date: 2022-05-24 @ 10:03 PM |cff808080UTC|r
 
