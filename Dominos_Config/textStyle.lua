@@ -193,6 +193,9 @@ swatch:SetScript("OnClick", function()
 	ColorPickerFrame:Show()
 end)
 
+--[[ Shorten macro names (macro name only) ]]--
+local maxSlider = NewValueSlider(L.TextMaxChars, 0, 20, "maxChars", swatch, -44)
+
 --[[ Reset (current text only) ]]--
 local reset = panel:NewButton(L.TextReset, 170, 22)
 reset:SetPoint("TOPLEFT", ySlider, "BOTTOMLEFT", 0, -28)
@@ -212,6 +215,12 @@ function Refresh()
 	xSlider:SetValue(Get("x"))
 	ySlider:SetValue(Get("y"))
 	UpdateSwatch()
+	if current == "macro" then
+		maxSlider:SetValue(Get("maxChars") or 0)
+		maxSlider:Show()
+	else
+		maxSlider:Hide()
+	end
 	refreshing = false
 end
 panel:SetScript("OnShow", Refresh)

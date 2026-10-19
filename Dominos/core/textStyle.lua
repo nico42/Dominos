@@ -29,6 +29,7 @@ local function Defaults(size, r, g, b)
 	return {
 		enabled = false, font = DEFAULT_FONT, size = size, outline = "OUTLINE",
 		r = r, g = g, b = b, x = 0, y = 0,
+		maxChars = 0, -- 0 = do not shorten (only used by the macro name)
 	}
 end
 TS.DEFAULTS = {
@@ -149,12 +150,41 @@ local function Restore(fs)
 	end
 end
 
+-- Shortens the macro name to its first n characters + "..." (UTF-8 aware).
+-- The game rewrites the text on its own updates, so the unshortened text is remembered
+-- and the shortened result is recognised when this runs again.
+local raw, shown = {}, {}
+
+local function Cut(text, n)
+	local i, count, len = 1, 0, #text
+	while i <= len and count < n do
+		local c = text:byte(i)
+		i = i + (c >= 240 and 4 or c >= 224 and 3 or c >= 192 and 2 or 1)
+		count = count + 1
+	end
+	return text:sub(1, i - 1), i <= len
+end
+
+local function Truncate(fs, max)
+	local text = fs:GetText()
+	if not text then return end
+	local source = (shown[fs] ~= nil and text == shown[fs]) and raw[fs] or text
+	local out = source
+	if max and max > 0 then
+		local head, more = Cut(source, max)
+		if more then out = head .. "..." end
+	end
+	raw[fs], shown[fs] = source, out
+	if out ~= text then fs:SetText(out) end
+end
+
 local function ApplyButton(btn, only)
 	for _, el in ipairs(TS.ELEMENTS) do
 		if not only or only == el then
 			local fs = TextOf(btn, el)
 			if fs then
 				if cfg[el].enabled then Style(fs, el) else Restore(fs) end
+				if el == "macro" then Truncate(fs, cfg.macro.maxChars) end
 			end
 		end
 	end
